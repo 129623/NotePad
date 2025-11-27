@@ -79,6 +79,11 @@ public final class NotePad {
         private static final String PATH_LIVE_FOLDER = "/live_folders/notes";
 
         /**
+         * Path part for the categories URI
+         */
+        private static final String PATH_CATEGORIES = "/categories";
+
+        /**
          * The content:// style URL for this table
          */
         public static final Uri CONTENT_URI =  Uri.parse(SCHEME + AUTHORITY + PATH_NOTES);
@@ -96,6 +101,12 @@ public final class NotePad {
          */
         public static final Uri CONTENT_ID_URI_PATTERN
             = Uri.parse(SCHEME + AUTHORITY + PATH_NOTE_ID + "/#");
+
+        /**
+         * The content Uri for categories
+         */
+        public static final Uri CATEGORIES_URI = Uri.parse(SCHEME + AUTHORITY + PATH_CATEGORIES);
+
 
         /**
          * The content Uri pattern for a notes listing for live folders
@@ -150,5 +161,11 @@ public final class NotePad {
          * <P>Type: INTEGER (long from System.curentTimeMillis())</P>
          */
         public static final String COLUMN_NAME_MODIFICATION_DATE = "modified";
+
+        /**
+         * Column name for the category of the note
+         * <P>Type: TEXT</P>
+         */
+        public static final String COLUMN_NAME_CATEGORY = "category";
     }
 }

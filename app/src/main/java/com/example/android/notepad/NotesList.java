@@ -16,448 +16,477 @@
 
 package com.example.android.notepad;
 
-import com.example.android.notepad.NotePad;
-
-import android.app.ListActivity;
-import android.content.ClipboardManager;
-import android.content.ClipData;
-import android.content.ComponentName;
+import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.ContentUris;
 import android.content.Context;
+import android.content.DialogInterface;
 import android.content.Intent;
 import android.database.Cursor;
 import android.net.Uri;
 import android.os.Bundle;
-import android.util.Log;
+import android.text.Editable;
+import android.text.TextWatcher;
 import android.view.ContextMenu;
+import android.view.LayoutInflater;
 import android.view.Menu;
 import android.view.MenuInflater;
 import android.view.MenuItem;
 import android.view.View;
-import android.view.ContextMenu.ContextMenuInfo;
-import android.widget.AdapterView;
-import android.widget.ListView;
-import android.widget.SimpleCursorAdapter;
+import android.view.ViewGroup;
+import android.widget.BaseExpandableListAdapter;
+import android.widget.EditText;
+import android.widget.ExpandableListView;
+import android.widget.LinearLayout;
+import android.widget.TextView;
 
+import androidx.core.content.ContextCompat;
 
-/**
- * Displays a list of notes. Will display notes from the {@link Uri}
- * provided in the incoming Intent if there is one, otherwise it defaults to displaying the
- * contents of the {@link NotePadProvider}.
- *
- * NOTE: Notice that the provider operations in this Activity are taking place on the UI thread.
- * This is not a good practice. It is only done here to make the code more readable. A real
- * application should use the {@link android.content.AsyncQueryHandler} or
- * {@link android.os.AsyncTask} object to perform operations asynchronously on a separate thread.
- */
-public class NotesList extends ListActivity {
+import com.google.android.material.floatingactionbutton.FloatingActionButton;
 
-    // For logging and debugging
-    private static final String TAG = "NotesList";
+import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.List;
 
-    /**
-     * The columns needed by the cursor adapter
-     */
-    private static final String[] PROJECTION = new String[] {
-            NotePad.Notes._ID, // 0
-            NotePad.Notes.COLUMN_NAME_TITLE, // 1
+public class NotesList extends Activity implements ExpandableListView.OnChildClickListener {
+
+    private static final String[] CATEGORY_PROJECTION = new String[]{
+            NotePad.Notes.COLUMN_NAME_CATEGORY,
+            "COUNT(*) AS count"
     };
 
-    /** The index of the title column */
-    private static final int COLUMN_INDEX_TITLE = 1;
+    private static final String[] NOTE_PROJECTION = new String[]{
+            NotePad.Notes._ID,
+            NotePad.Notes.COLUMN_NAME_TITLE,
+            NotePad.Notes.COLUMN_NAME_MODIFICATION_DATE
+    };
 
-    /**
-     * onCreate is called when Android starts this Activity from scratch.
-     */
+    private static final String[] SEARCH_NOTE_PROJECTION = new String[]{
+            NotePad.Notes._ID,
+            NotePad.Notes.COLUMN_NAME_TITLE,
+            NotePad.Notes.COLUMN_NAME_MODIFICATION_DATE,
+            NotePad.Notes.COLUMN_NAME_CATEGORY
+    };
+
+    private ExpandableListView mExpandableListView;
+    private NotesExpandableListAdapter mAdapter;
+    private EditText mSearchEditText;
+    private FloatingActionButton mFabAddNote;
+
+    private static final int REQUEST_CODE_EDIT_NOTE = 1;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        setContentView(R.layout.noteslist_expandable);
 
-        // The user does not need to hold down the key to use menu shortcuts.
-        setDefaultKeyMode(DEFAULT_KEYS_SHORTCUT);
+        mExpandableListView = findViewById(R.id.expandable_list);
+        mAdapter = new NotesExpandableListAdapter(this);
+        mExpandableListView.setAdapter(mAdapter);
+        mExpandableListView.setOnChildClickListener(this);
 
-        /* If no data is given in the Intent that started this Activity, then this Activity
-         * was started when the intent filter matched a MAIN action. We should use the default
-         * provider URI.
-         */
-        // Gets the intent that started this Activity.
-        Intent intent = getIntent();
-
-        // If there is no data associated with the Intent, sets the data to the default URI, which
-        // accesses a list of notes.
-        if (intent.getData() == null) {
-            intent.setData(NotePad.Notes.CONTENT_URI);
-        }
-
-        /*
-         * Sets the callback for context menu activation for the ListView. The listener is set
-         * to be this Activity. The effect is that context menus are enabled for items in the
-         * ListView, and the context menu is handled by a method in NotesList.
-         */
-        getListView().setOnCreateContextMenuListener(this);
-
-        /* Performs a managed query. The Activity handles closing and requerying the cursor
-         * when needed.
-         *
-         * Please see the introductory note about performing provider operations on the UI thread.
-         */
-        Cursor cursor = managedQuery(
-            getIntent().getData(),            // Use the default content URI for the provider.
-            PROJECTION,                       // Return the note ID and title for each note.
-            null,                             // No where clause, return all records.
-            null,                             // No where clause, therefore no where column values.
-            NotePad.Notes.DEFAULT_SORT_ORDER  // Use the default sort order.
-        );
-
-        /*
-         * The following two arrays create a "map" between columns in the cursor and view IDs
-         * for items in the ListView. Each element in the dataColumns array represents
-         * a column name; each element in the viewID array represents the ID of a View.
-         * The SimpleCursorAdapter maps them in ascending order to determine where each column
-         * value will appear in the ListView.
-         */
-
-        // The names of the cursor columns to display in the view, initialized to the title column
-        String[] dataColumns = { NotePad.Notes.COLUMN_NAME_TITLE } ;
-
-        // The view IDs that will display the cursor columns, initialized to the TextView in
-        // noteslist_item.xml
-        int[] viewIDs = { android.R.id.text1 };
-
-        // Creates the backing adapter for the ListView.
-        SimpleCursorAdapter adapter
-            = new SimpleCursorAdapter(
-                      this,                             // The Context for the ListView
-                      R.layout.noteslist_item,          // Points to the XML for a list item
-                      cursor,                           // The cursor to get items from
-                      dataColumns,
-                      viewIDs
-              );
-
-        // Sets the ListView's adapter to be the cursor adapter that was just created.
-        setListAdapter(adapter);
-    }
-
-    /**
-     * Called when the user clicks the device's Menu button the first time for
-     * this Activity. Android passes in a Menu object that is populated with items.
-     *
-     * Sets up a menu that provides the Insert option plus a list of alternative actions for
-     * this Activity. Other applications that want to handle notes can "register" themselves in
-     * Android by providing an intent filter that includes the category ALTERNATIVE and the
-     * mimeTYpe NotePad.Notes.CONTENT_TYPE. If they do this, the code in onCreateOptionsMenu()
-     * will add the Activity that contains the intent filter to its list of options. In effect,
-     * the menu will offer the user other applications that can handle notes.
-     * @param menu A Menu object, to which menu items should be added.
-     * @return True, always. The menu should be displayed.
-     */
-    @Override
-    public boolean onCreateOptionsMenu(Menu menu) {
-        // Inflate menu from XML resource
-        MenuInflater inflater = getMenuInflater();
-        inflater.inflate(R.menu.list_options_menu, menu);
-
-        // Generate any additional actions that can be performed on the
-        // overall list.  In a normal install, there are no additional
-        // actions found here, but this allows other applications to extend
-        // our menu with their own actions.
-        Intent intent = new Intent(null, getIntent().getData());
-        intent.addCategory(Intent.CATEGORY_ALTERNATIVE);
-        menu.addIntentOptions(Menu.CATEGORY_ALTERNATIVE, 0, 0,
-                new ComponentName(this, NotesList.class), null, intent, 0, null);
-
-        return super.onCreateOptionsMenu(menu);
-    }
-
-    @Override
-    public boolean onPrepareOptionsMenu(Menu menu) {
-        super.onPrepareOptionsMenu(menu);
-
-        // The paste menu item is enabled if there is data on the clipboard.
-        ClipboardManager clipboard = (ClipboardManager)
-                getSystemService(Context.CLIPBOARD_SERVICE);
-
-
-        MenuItem mPasteItem = menu.findItem(R.id.menu_paste);
-
-        // If the clipboard contains an item, enables the Paste option on the menu.
-        if (clipboard.hasPrimaryClip()) {
-            mPasteItem.setEnabled(true);
-        } else {
-            // If the clipboard is empty, disables the menu's Paste option.
-            mPasteItem.setEnabled(false);
-        }
-
-        // Gets the number of notes currently being displayed.
-        final boolean haveItems = getListAdapter().getCount() > 0;
-
-        // If there are any notes in the list (which implies that one of
-        // them is selected), then we need to generate the actions that
-        // can be performed on the current selection.  This will be a combination
-        // of our own specific actions along with any extensions that can be
-        // found.
-        if (haveItems) {
-
-            // This is the selected item.
-            Uri uri = ContentUris.withAppendedId(getIntent().getData(), getSelectedItemId());
-
-            // Creates an array of Intents with one element. This will be used to send an Intent
-            // based on the selected menu item.
-            Intent[] specifics = new Intent[1];
-
-            // Sets the Intent in the array to be an EDIT action on the URI of the selected note.
-            specifics[0] = new Intent(Intent.ACTION_EDIT, uri);
-
-            // Creates an array of menu items with one element. This will contain the EDIT option.
-            MenuItem[] items = new MenuItem[1];
-
-            // Creates an Intent with no specific action, using the URI of the selected note.
-            Intent intent = new Intent(null, uri);
-
-            /* Adds the category ALTERNATIVE to the Intent, with the note ID URI as its
-             * data. This prepares the Intent as a place to group alternative options in the
-             * menu.
-             */
-            intent.addCategory(Intent.CATEGORY_ALTERNATIVE);
-
-            /*
-             * Add alternatives to the menu
-             */
-            menu.addIntentOptions(
-                Menu.CATEGORY_ALTERNATIVE,  // Add the Intents as options in the alternatives group.
-                Menu.NONE,                  // A unique item ID is not required.
-                Menu.NONE,                  // The alternatives don't need to be in order.
-                null,                       // The caller's name is not excluded from the group.
-                specifics,                  // These specific options must appear first.
-                intent,                     // These Intent objects map to the options in specifics.
-                Menu.NONE,                  // No flags are required.
-                items                       // The menu items generated from the specifics-to-
-                                            // Intents mapping
-            );
-                // If the Edit menu item exists, adds shortcuts for it.
-                if (items[0] != null) {
-
-                    // Sets the Edit menu item shortcut to numeric "1", letter "e"
-                    items[0].setShortcut('1', 'e');
-                }
-            } else {
-                // If the list is empty, removes any existing alternative actions from the menu
-                menu.removeGroup(Menu.CATEGORY_ALTERNATIVE);
+        mSearchEditText = findViewById(R.id.search_edit_text);
+        mSearchEditText.addTextChangedListener(new TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) {
             }
 
-        // Displays the menu
+            @Override
+            public void onTextChanged(CharSequence s, int start, int before, int count) {
+                mAdapter.filter(s.toString());
+            }
+
+            @Override
+            public void afterTextChanged(Editable s) {
+            }
+        });
+
+        mFabAddNote = findViewById(R.id.fab_add_note);
+        mFabAddNote.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                Intent intent = new Intent(Intent.ACTION_INSERT, NotePad.Notes.CONTENT_URI);
+                intent.setClassName(NotesList.this, "com.example.android.notepad.NoteEditor");
+                startActivityForResult(intent, REQUEST_CODE_EDIT_NOTE);
+            }
+        });
+
+        registerForContextMenu(mExpandableListView);
+        mAdapter.refresh();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+    }
+
+    @Override
+    public boolean onCreateOptionsMenu(Menu menu) {
+        MenuInflater inflater = getMenuInflater();
+        inflater.inflate(R.menu.list_options_menu, menu);
+        inflater.inflate(R.menu.list_category_menu, menu);
+        // Hide the old add menu item
+        menu.findItem(R.id.menu_add).setVisible(false);
         return true;
     }
 
-    /**
-     * This method is called when the user selects an option from the menu, but no item
-     * in the list is selected. If the option was INSERT, then a new Intent is sent out with action
-     * ACTION_INSERT. The data from the incoming Intent is put into the new Intent. In effect,
-     * this triggers the NoteEditor activity in the NotePad application.
-     *
-     * If the item was not INSERT, then most likely it was an alternative option from another
-     * application. The parent method is called to process the item.
-     * @param item The menu item that was selected by the user
-     * @return True, if the INSERT menu item was selected; otherwise, the result of calling
-     * the parent method.
-     */
     @Override
     public boolean onOptionsItemSelected(MenuItem item) {
-        if (item.getItemId() == R.id.menu_add) {
-            /*
-             * Launches a new Activity using an Intent. The intent filter for the Activity
-             * has to have action ACTION_INSERT. No category is set, so DEFAULT is assumed.
-             * In effect, this starts the NoteEditor Activity in NotePad.
-             */
-            startActivity(new Intent(Intent.ACTION_INSERT, getIntent().getData()));
-            return true;
-        } else if (item.getItemId() == R.id.menu_paste) {
-            /*
-             * Launches a new Activity using an Intent. The intent filter for the Activity
-             * has to have action ACTION_PASTE. No category is set, so DEFAULT is assumed.
-             * In effect, this starts the NoteEditor Activity in NotePad.
-             */
-            startActivity(new Intent(Intent.ACTION_PASTE, getIntent().getData()));
+        if (item.getItemId() == R.id.menu_filter_by_category) {
+            showCategoryFilterDialog();
             return true;
         }
         return super.onOptionsItemSelected(item);
     }
 
-    /**
-     * This method is called when the user context-clicks a note in the list. NotesList registers
-     * itself as the handler for context menus in its ListView (this is done in onCreate()).
-     *
-     * The only available options are COPY and DELETE.
-     *
-     * Context-click is equivalent to long-press.
-     *
-     * @param menu A ContexMenu object to which items should be added.
-     * @param view The View for which the context menu is being constructed.
-     * @param menuInfo Data associated with view.
-     * @throws ClassCastException
-     */
     @Override
-    public void onCreateContextMenu(ContextMenu menu, View view, ContextMenuInfo menuInfo) {
+    public void onCreateContextMenu(ContextMenu menu, View v, ContextMenu.ContextMenuInfo menuInfo) {
+        super.onCreateContextMenu(menu, v, menuInfo);
 
-        // The data from the menu item.
-        AdapterView.AdapterContextMenuInfo info;
+        ExpandableListView.ExpandableListContextMenuInfo info =
+                (ExpandableListView.ExpandableListContextMenuInfo) menuInfo;
 
-        // Tries to get the position of the item in the ListView that was long-pressed.
-        try {
-            // Casts the incoming data object into the type for AdapterView objects.
-            info = (AdapterView.AdapterContextMenuInfo) menuInfo;
-        } catch (ClassCastException e) {
-            // If the menu object can't be cast, logs an error.
-            Log.e(TAG, "bad menuInfo", e);
-            return;
+        int type = ExpandableListView.getPackedPositionType(info.packedPosition);
+
+        if (type == ExpandableListView.PACKED_POSITION_TYPE_CHILD) {
+            MenuInflater inflater = getMenuInflater();
+            inflater.inflate(R.menu.list_context_menu, menu);
         }
-
-        /*
-         * Gets the data associated with the item at the selected position. getItem() returns
-         * whatever the backing adapter of the ListView has associated with the item. In NotesList,
-         * the adapter associated all of the data for a note with its list item. As a result,
-         * getItem() returns that data as a Cursor.
-         */
-        Cursor cursor = (Cursor) getListAdapter().getItem(info.position);
-
-        // If the cursor is empty, then for some reason the adapter can't get the data from the
-        // provider, so returns null to the caller.
-        if (cursor == null) {
-            // For some reason the requested item isn't available, do nothing
-            return;
-        }
-
-        // Inflate menu from XML resource
-        MenuInflater inflater = getMenuInflater();
-        inflater.inflate(R.menu.list_context_menu, menu);
-
-        // Sets the menu header to be the title of the selected note.
-        menu.setHeaderTitle(cursor.getString(COLUMN_INDEX_TITLE));
-
-        // Append to the
-        // menu items for any other activities that can do stuff with it
-        // as well.  This does a query on the system for any activities that
-        // implement the ALTERNATIVE_ACTION for our data, adding a menu item
-        // for each one that is found.
-        Intent intent = new Intent(null, Uri.withAppendedPath(getIntent().getData(), 
-                                        Integer.toString((int) info.id) ));
-        intent.addCategory(Intent.CATEGORY_ALTERNATIVE);
-        intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        menu.addIntentOptions(Menu.CATEGORY_ALTERNATIVE, 0, 0,
-                new ComponentName(this, NotesList.class), null, intent, 0, null);
     }
 
-    /**
-     * This method is called when the user selects an item from the context menu
-     * (see onCreateContextMenu()). The only menu items that are actually handled are DELETE and
-     * COPY. Anything else is an alternative option, for which default handling should be done.
-     *
-     * @param item The selected menu item
-     * @return True if the menu item was DELETE, and no default processing is need, otherwise false,
-     * which triggers the default handling of the item.
-     * @throws ClassCastException
-     */
     @Override
     public boolean onContextItemSelected(MenuItem item) {
-        // The data from the menu item.
-        AdapterView.AdapterContextMenuInfo info;
+        ExpandableListView.ExpandableListContextMenuInfo info =
+                (ExpandableListView.ExpandableListContextMenuInfo) item.getMenuInfo();
 
-        /*
-         * Gets the extra info from the menu item. When an note in the Notes list is long-pressed, a
-         * context menu appears. The menu items for the menu automatically get the data
-         * associated with the note that was long-pressed. The data comes from the provider that
-         * backs the list.
-         *
-         * The note's data is passed to the context menu creation routine in a ContextMenuInfo
-         * object.
-         *
-         * When one of the context menu items is clicked, the same data is passed, along with the
-         * note ID, to onContextItemSelected() via the item parameter.
-         */
-        try {
-            // Casts the data object in the item into the type for AdapterView objects.
-            info = (AdapterView.AdapterContextMenuInfo) item.getMenuInfo();
-        } catch (ClassCastException e) {
+        int groupPosition = ExpandableListView.getPackedPositionGroup(info.packedPosition);
+        int childPosition = ExpandableListView.getPackedPositionChild(info.packedPosition);
 
-            // If the object can't be cast, logs an error
-            Log.e(TAG, "bad menuInfo", e);
+        long noteId = mAdapter.getChildId(groupPosition, childPosition);
+        Uri noteUri = ContentUris.withAppendedId(NotePad.Notes.CONTENT_ID_URI_BASE, noteId);
 
-            // Triggers default processing of the menu item.
-            return false;
-        }
-        // Appends the selected note's ID to the URI sent with the incoming Intent.
-        Uri noteUri = ContentUris.withAppendedId(getIntent().getData(), info.id);
-
-        /*
-         * Gets the menu item's ID and compares it to known actions.
-         */
         int id = item.getItemId();
         if (id == R.id.context_open) {
-            // Launch activity to view/edit the currently selected item
-            startActivity(new Intent(Intent.ACTION_EDIT, noteUri));
+            Intent intent = new Intent(Intent.ACTION_EDIT, noteUri);
+            intent.setClassName(this, "com.example.android.notepad.NoteEditor");
+            startActivityForResult(intent, REQUEST_CODE_EDIT_NOTE);
             return true;
-        } else if (id == R.id.context_copy) { //BEGIN_INCLUDE(copy)
-            // Gets a handle to the clipboard service.
-            ClipboardManager clipboard = (ClipboardManager)
-                    getSystemService(Context.CLIPBOARD_SERVICE);
-
-            // Copies the notes URI to the clipboard. In effect, this copies the note itself
-            clipboard.setPrimaryClip(ClipData.newUri(   // new clipboard item holding a URI
-                    getContentResolver(),               // resolver to retrieve URI info
-                    "Note",                             // label for the clip
-                    noteUri));                          // the URI
-
-            // Returns to the caller and skips further processing.
-            return true;
-            //END_INCLUDE(copy)
         } else if (id == R.id.context_delete) {
-            // Deletes the note from the provider by passing in a URI in note ID format.
-            // Please see the introductory note about performing provider operations on the
-            // UI thread.
-            getContentResolver().delete(
-                    noteUri,  // The URI of the provider
-                    null,     // No where clause is needed, since only a single note ID is being
-                    // passed in.
-                    null      // No where clause is used, so no where arguments are needed.
-            );
-
-            // Returns to the caller and skips further processing.
+            getContentResolver().delete(noteUri, null, null);
+            mAdapter.refresh();
             return true;
         }
         return super.onContextItemSelected(item);
     }
 
-    /**
-     * This method is called when the user clicks a note in the displayed list.
-     *
-     * This method handles incoming actions of either PICK (get data from the provider) or
-     * GET_CONTENT (get or create data). If the incoming action is EDIT, this method sends a
-     * new Intent to start NoteEditor.
-     * @param l The ListView that contains the clicked item
-     * @param v The View of the individual item
-     * @param position The position of v in the displayed list
-     * @param id The row ID of the clicked item
-     */
     @Override
-    protected void onListItemClick(ListView l, View v, int position, long id) {
+    public boolean onChildClick(ExpandableListView parent, View v, int groupPosition, int childPosition, long id) {
+        Uri noteUri = ContentUris.withAppendedId(NotePad.Notes.CONTENT_ID_URI_BASE, id);
+        Intent intent = new Intent(Intent.ACTION_EDIT, noteUri);
+        intent.setClassName(this, "com.example.android.notepad.NoteEditor");
+        startActivityForResult(intent, REQUEST_CODE_EDIT_NOTE);
+        return true;
+    }
 
-        // Constructs a new URI from the incoming URI and the row ID
-        Uri uri = ContentUris.withAppendedId(getIntent().getData(), id);
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        if (requestCode == REQUEST_CODE_EDIT_NOTE && resultCode == RESULT_OK) {
+            mAdapter.refresh();
+        }
+    }
 
-        // Gets the action from the incoming Intent
-        String action = getIntent().getAction();
+    private void showCategoryFilterDialog() {
+        Cursor cursor = getContentResolver().query(NotePad.Notes.CATEGORIES_URI, null, null, null, null);
+        List<String> categories = new ArrayList<>();
+        if (cursor != null) {
+            while (cursor.moveToNext()) {
+                String category = cursor.getString(0);
+                if (category != null && !category.isEmpty()) {
+                    categories.add(category);
+                }
+            }
+            cursor.close();
+        }
 
-        // Handles requests for note data
-        if (Intent.ACTION_PICK.equals(action) || Intent.ACTION_GET_CONTENT.equals(action)) {
+        categories.add(0, "All");
 
-            // Sets the result to return to the component that called this Activity. The
-            // result contains the new URI
-            setResult(RESULT_OK, new Intent().setData(uri));
-        } else {
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setTitle("Filter by Category");
+        builder.setItems(categories.toArray(new String[0]), new DialogInterface.OnClickListener() {
+            @Override
+            public void onClick(DialogInterface dialog, int which) {
+                String category = categories.get(which);
+                if (category.equals("All")) {
+                    mAdapter.filterByCategory(null);
+                } else {
+                    mAdapter.filterByCategory(category);
+                }
+            }
+        });
+        builder.show();
+    }
 
-            // Sends out an Intent to start an Activity that can handle ACTION_EDIT. The
-            // Intent's data is the note ID URI. The effect is to call NoteEdit.
-            startActivity(new Intent(Intent.ACTION_EDIT, uri));
+    private class NotesExpandableListAdapter extends BaseExpandableListAdapter {
+
+        private Context mContext;
+        private List<Group> mGroups;
+        private String mQuery;
+        private String mCategoryFilter;
+
+        public NotesExpandableListAdapter(Context context) {
+            mContext = context;
+            mGroups = new ArrayList<>();
+        }
+
+        public void refresh() {
+            mGroups.clear();
+
+            // When searching, get all matching notes first, then group them
+            if (mQuery != null && mQuery.length() > 0) {
+                // Build selection criteria for all notes with search filter
+                String selection = NotePad.Notes.COLUMN_NAME_TITLE + " LIKE ? OR " + NotePad.Notes.COLUMN_NAME_NOTE + " LIKE ?";
+                String[] selectionArgs = new String[]{"%" + mQuery + "%", "%" + mQuery + "%"};
+
+                // Apply category filter if present
+                if (mCategoryFilter != null && !"All".equals(mCategoryFilter)) {
+                    selection = "(" + selection + ") AND " + NotePad.Notes.COLUMN_NAME_CATEGORY + " = ?";
+                    selectionArgs = new String[]{"%" + mQuery + "%", "%" + mQuery + "%", mCategoryFilter};
+                }
+
+                Cursor noteCursor = mContext.getContentResolver().query(
+                        NotePad.Notes.CONTENT_URI,
+                        SEARCH_NOTE_PROJECTION,
+                        selection,
+                        selectionArgs,
+                        NotePad.Notes.COLUMN_NAME_MODIFICATION_DATE + " DESC");
+
+                // Group notes by category
+                HashMap<String, List<Note>> tempNotes = new HashMap<>();
+                if (noteCursor != null) {
+                    while (noteCursor.moveToNext()) {
+                        long id = noteCursor.getLong(0);
+                        String title = noteCursor.getString(1);
+                        long modDate = noteCursor.getLong(2);
+                        String category = noteCursor.getString(3); // category column
+
+                        String displayCategory = category;
+                        if (category == null || category.isEmpty()) {
+                            displayCategory = "Uncategorized";
+                        }
+
+                        if (!tempNotes.containsKey(displayCategory)) {
+                            tempNotes.put(displayCategory, new ArrayList<Note>());
+                        }
+                        tempNotes.get(displayCategory).add(new Note(id, title, modDate));
+                    }
+                    noteCursor.close();
+                }
+
+                // Populate groups
+                for (String category : tempNotes.keySet()) {
+                    mGroups.add(new Group(category, tempNotes.get(category)));
+                }
+            } else {
+                // Normal mode - get categories first, then notes for each category
+                String categorySelection = null;
+                String[] categorySelectionArgs = null;
+
+                if (mCategoryFilter != null && !"All".equals(mCategoryFilter)) {
+                    categorySelection = NotePad.Notes.COLUMN_NAME_CATEGORY + " = ?";
+                    categorySelectionArgs = new String[]{mCategoryFilter};
+                }
+
+                Cursor categoryCursor = mContext.getContentResolver().query(
+                        NotePad.Notes.CATEGORIES_URI,
+                        CATEGORY_PROJECTION,
+                        categorySelection,
+                        categorySelectionArgs,
+                        null);
+
+                if (categoryCursor != null) {
+                    while (categoryCursor.moveToNext()) {
+                        String category = categoryCursor.getString(0);
+                        String displayCategory = category;
+                        if (category == null || category.isEmpty()) {
+                            displayCategory = "Uncategorized";
+                        }
+
+                        // Build selection criteria for notes
+                        String selection = NotePad.Notes.COLUMN_NAME_CATEGORY + " = ? OR (" + NotePad.Notes.COLUMN_NAME_CATEGORY + " IS NULL AND ? = 'Uncategorized')";
+                        String[] selectionArgs = new String[]{category != null ? category : "", displayCategory};
+
+                        Cursor noteCursor = mContext.getContentResolver().query(
+                                NotePad.Notes.CONTENT_URI,
+                                NOTE_PROJECTION,
+                                selection,
+                                selectionArgs,
+                                NotePad.Notes.COLUMN_NAME_MODIFICATION_DATE + " DESC");
+                        List<Note> notes = new ArrayList<>();
+                        if (noteCursor != null) {
+                            while (noteCursor.moveToNext()) {
+                                notes.add(new Note(noteCursor.getLong(0), noteCursor.getString(1), noteCursor.getLong(2)));
+                            }
+                            noteCursor.close();
+                        }
+
+                        mGroups.add(new Group(displayCategory, notes));
+                    }
+                    categoryCursor.close();
+                }
+            }
+            
+            // Sort groups by timestamp (most recent note first) but keep Uncategorized at top
+            Collections.sort(mGroups, new Comparator<Group>() {
+                @Override
+                public int compare(Group g1, Group g2) {
+                    // "Uncategorized" group should always be at the top
+                    if ("Uncategorized".equals(g1.name) && !"Uncategorized".equals(g2.name)) {
+                        return -1;
+                    } else if (!"Uncategorized".equals(g1.name) && "Uncategorized".equals(g2.name)) {
+                        return 1;
+                    }
+                    
+                    // For other groups, sort by the most recent note's timestamp
+                    long g1Timestamp = g1.notes.isEmpty() ? 0 : g1.notes.get(0).modificationDate;
+                    long g2Timestamp = g2.notes.isEmpty() ? 0 : g2.notes.get(0).modificationDate;
+                    return Long.compare(g2Timestamp, g1Timestamp); // Descending order
+                }
+            });
+            
+            notifyDataSetChanged();
+        }
+
+        public void filter(String query) {
+            mQuery = query;
+            refresh();
+        }
+
+        public void filterByCategory(String category) {
+            mCategoryFilter = category;
+            refresh();
+        }
+
+        @Override
+        public int getGroupCount() {
+            return mGroups.size();
+        }
+
+        @Override
+        public int getChildrenCount(int groupPosition) {
+            return mGroups.get(groupPosition).notes.size();
+        }
+
+        @Override
+        public Object getGroup(int groupPosition) {
+            return mGroups.get(groupPosition);
+        }
+
+        @Override
+        public Object getChild(int groupPosition, int childPosition) {
+            return mGroups.get(groupPosition).notes.get(childPosition);
+        }
+
+        @Override
+        public long getGroupId(int groupPosition) {
+            return groupPosition;
+        }
+
+        @Override
+        public long getChildId(int groupPosition, int childPosition) {
+            return ((Note) getChild(groupPosition, childPosition)).id;
+        }
+
+        @Override
+        public boolean hasStableIds() {
+            return true;
+        }
+
+        @Override
+        public View getGroupView(int groupPosition, boolean isExpanded, View convertView, ViewGroup parent) {
+            if (convertView == null) {
+                LayoutInflater inflater = (LayoutInflater) mContext.getSystemService(Context.LAYOUT_INFLATER_SERVICE);
+                convertView = inflater.inflate(R.layout.noteslist_group, null);
+            }
+
+            LinearLayout container = convertView.findViewById(R.id.group_content_container);
+
+            // Set background based on expansion
+            if (isExpanded) {
+                container.setBackground(ContextCompat.getDrawable(mContext, R.drawable.group_background_top));
+            } else {
+                container.setBackground(ContextCompat.getDrawable(mContext, R.drawable.rounded_corners));
+            }
+
+            TextView categoryName = (TextView)convertView.findViewById(R.id.category_name);
+            TextView categoryCount = (TextView)convertView.findViewById(R.id.category_count);
+
+            Group group = (Group) getGroup(groupPosition);
+            categoryName.setText(group.name);
+            categoryCount.setText(String.valueOf(getChildrenCount(groupPosition)));
+
+            return convertView;
+        }
+
+        @Override
+        public View getChildView(int groupPosition, int childPosition, boolean isLastChild, View convertView, ViewGroup parent) {
+            if (convertView == null) {
+                LayoutInflater inflater = (LayoutInflater) mContext.getSystemService(Context.LAYOUT_INFLATER_SERVICE);
+                convertView = inflater.inflate(R.layout.noteslist_item, null);
+            }
+
+            // Set background for child items
+            if (isLastChild) {
+                convertView.setBackground(ContextCompat.getDrawable(mContext, R.drawable.group_background_bottom));
+            } else {
+                convertView.setBackground(ContextCompat.getDrawable(mContext, R.drawable.group_background_middle));
+            }
+
+            TextView title = (TextView) convertView.findViewById(R.id.text1);
+            TextView date = (TextView)convertView.findViewById(R.id.text2);
+            View divider = convertView.findViewById(R.id.divider);
+
+            if (isLastChild) {
+                divider.setVisibility(View.GONE);
+            } else {
+                divider.setVisibility(View.VISIBLE);
+            }
+
+            Note note = (Note) getChild(groupPosition, childPosition);
+            title.setText(note.title);
+            date.setText(new SimpleDateFormat("yyyy-MM-dd HH:mm").format(new Date(note.modificationDate)));
+
+            return convertView;
+        }
+
+        @Override
+        public boolean isChildSelectable(int groupPosition, int childPosition) {
+            return true;
+        }
+    }
+
+    private static class Group {
+        String name;
+        List<Note> notes;
+
+        public Group(String name, List<Note> notes) {
+            this.name = name;
+            this.notes = notes;
+        }
+    }
+
+    private static class Note {
+        long id;
+        String title;
+        long modificationDate;
+
+        public Note(long id, String title, long modificationDate) {
+            this.id = id;
+            this.title = title;
+            this.modificationDate = modificationDate;
         }
     }
 }

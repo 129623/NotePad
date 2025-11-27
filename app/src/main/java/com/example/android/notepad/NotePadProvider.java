@@ -63,7 +63,7 @@ public class NotePadProvider extends ContentProvider implements PipeDataWriter<C
     /**
      * The database version
      */
-    private static final int DATABASE_VERSION = 2;
+    private static final int DATABASE_VERSION = 3;
 
     /**
      * A projection map used to select columns from the database
@@ -74,6 +74,8 @@ public class NotePadProvider extends ContentProvider implements PipeDataWriter<C
      * A projection map used to select columns from the database
      */
     private static HashMap<String, String> sLiveFolderProjectionMap;
+
+    private static HashMap<String, String> sCategoriesProjectionMap;
 
     /**
      * Standard projection for the interesting columns of a normal note.
@@ -98,6 +100,9 @@ public class NotePadProvider extends ContentProvider implements PipeDataWriter<C
 
     // The incoming URI matches the Live Folder URI pattern
     private static final int LIVE_FOLDER_NOTES = 3;
+
+    // The incoming URI matches the Categories URI pattern
+    private static final int CATEGORIES = 4;
 
     /**
      * A UriMatcher instance
@@ -130,6 +135,9 @@ public class NotePadProvider extends ContentProvider implements PipeDataWriter<C
         // live folder operation
         sUriMatcher.addURI(NotePad.AUTHORITY, "live_folders/notes", LIVE_FOLDER_NOTES);
 
+        // Add a pattern that routes URIs terminated with "categories" to a CATEGORIES operation
+        sUriMatcher.addURI(NotePad.AUTHORITY, "categories", CATEGORIES);
+
         /*
          * Creates and initializes a projection map that returns all columns
          */
@@ -156,6 +164,9 @@ public class NotePadProvider extends ContentProvider implements PipeDataWriter<C
                 NotePad.Notes.COLUMN_NAME_MODIFICATION_DATE,
                 NotePad.Notes.COLUMN_NAME_MODIFICATION_DATE);
 
+        // Maps "category" to "category"
+        sNotesProjectionMap.put(NotePad.Notes.COLUMN_NAME_CATEGORY, NotePad.Notes.COLUMN_NAME_CATEGORY);
+
         /*
          * Creates an initializes a projection map for handling Live Folders
          */
@@ -169,6 +180,11 @@ public class NotePadProvider extends ContentProvider implements PipeDataWriter<C
         // Maps "NAME" to "title AS NAME"
         sLiveFolderProjectionMap.put(LiveFolders.NAME, NotePad.Notes.COLUMN_NAME_TITLE + " AS " +
             LiveFolders.NAME);
+
+        // Creates a new projection map instance for categories
+        sCategoriesProjectionMap = new HashMap<String, String>();
+        sCategoriesProjectionMap.put(NotePad.Notes.COLUMN_NAME_CATEGORY, NotePad.Notes.COLUMN_NAME_CATEGORY);
+        sCategoriesProjectionMap.put("COUNT(*)", "COUNT(*)");
     }
 
     /**
@@ -196,7 +212,8 @@ public class NotePadProvider extends ContentProvider implements PipeDataWriter<C
                    + NotePad.Notes.COLUMN_NAME_TITLE + " TEXT,"
                    + NotePad.Notes.COLUMN_NAME_NOTE + " TEXT,"
                    + NotePad.Notes.COLUMN_NAME_CREATE_DATE + " INTEGER,"
-                   + NotePad.Notes.COLUMN_NAME_MODIFICATION_DATE + " INTEGER"
+                   + NotePad.Notes.COLUMN_NAME_MODIFICATION_DATE + " INTEGER,"
+                   + NotePad.Notes.COLUMN_NAME_CATEGORY + " TEXT"
                    + ");");
        }
 
@@ -212,13 +229,18 @@ public class NotePadProvider extends ContentProvider implements PipeDataWriter<C
 
            // Logs that the database is being upgraded
            Log.w(TAG, "Upgrading database from version " + oldVersion + " to "
-                   + newVersion + ", which will destroy all old data");
+                   + newVersion);
+
+           if (oldVersion < 3) {
+               db.execSQL("ALTER TABLE " + NotePad.Notes.TABLE_NAME + " ADD COLUMN " +
+                       NotePad.Notes.COLUMN_NAME_CATEGORY + " TEXT;");
+           }
 
            // Kills the table and existing data
-           db.execSQL("DROP TABLE IF EXISTS notes");
+           // db.execSQL("DROP TABLE IF EXISTS notes");
 
            // Recreates the database with a new version
-           onCreate(db);
+           // onCreate(db);
        }
    }
 
@@ -283,6 +305,11 @@ public class NotePadProvider extends ContentProvider implements PipeDataWriter<C
                qb.setProjectionMap(sLiveFolderProjectionMap);
                break;
 
+           case CATEGORIES:
+               qb.setProjectionMap(sCategoriesProjectionMap);
+               qb.setDistinct(true);
+               break;
+
            default:
                // If the URI doesn't match any of the known patterns, throw an exception.
                throw new IllegalArgumentException("Unknown URI " + uri);
@@ -306,12 +333,19 @@ public class NotePadProvider extends ContentProvider implements PipeDataWriter<C
         * object is returned; otherwise, the cursor variable contains null. If no records were
         * selected, then the Cursor object is empty, and Cursor.getCount() returns 0.
         */
+       
+       String groupBy = null;
+       // Only group by category when querying categories
+       if (sUriMatcher.match(uri) == CATEGORIES) {
+           groupBy = NotePad.Notes.COLUMN_NAME_CATEGORY;
+       }
+       
        Cursor c = qb.query(
            db,            // The database to query
            projection,    // The columns to return from the query
            selection,     // The columns for the where clause
            selectionArgs, // The values for the where clause
-           null,          // don't group the rows
+           groupBy,       // group the rows by category only for CATEGORIES URI
            null,          // don't filter by row groups
            orderBy        // The sort order
        );
@@ -345,6 +379,9 @@ public class NotePadProvider extends ContentProvider implements PipeDataWriter<C
            // If the pattern is for note IDs, returns the note ID content type.
            case NOTE_ID:
                return NotePad.Notes.CONTENT_ITEM_TYPE;
+
+           case CATEGORIES:
+               return NotePad.Notes.CONTENT_TYPE;
 
            // If the URI pattern doesn't match any permitted patterns, throws an exception.
            default:
@@ -381,6 +418,7 @@ public class NotePadProvider extends ContentProvider implements PipeDataWriter<C
             // supported for this type of URI.
             case NOTES:
             case LIVE_FOLDER_NOTES:
+            case CATEGORIES:
                 return null;
 
             // If the pattern is for note IDs and the MIME filter is text/plain, then return
@@ -527,12 +565,6 @@ public class NotePadProvider extends ContentProvider implements PipeDataWriter<C
         // time.
         if (values.containsKey(NotePad.Notes.COLUMN_NAME_MODIFICATION_DATE) == false) {
             values.put(NotePad.Notes.COLUMN_NAME_MODIFICATION_DATE, now);
-        }
-
-        // If the values map doesn't contain a title, sets the value to the default title.
-        if (values.containsKey(NotePad.Notes.COLUMN_NAME_TITLE) == false) {
-            Resources r = Resources.getSystem();
-            values.put(NotePad.Notes.COLUMN_NAME_TITLE, r.getString(android.R.string.untitled));
         }
 
         // If the values map doesn't contain note text, sets the value to an empty string.

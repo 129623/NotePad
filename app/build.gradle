@@ -2,13 +2,11 @@ apply plugin: 'com.android.application'
 
 android {
     namespace 'com.example.android.notepad'
-    compileSdkVersion 23
-    buildToolsVersion "23.0.1"
-
+    compileSdkVersion 34
     defaultConfig {
         applicationId "com.example.android.notepad"
-        minSdkVersion 11
-        targetSdkVersion 23
+        minSdkVersion 21
+        targetSdkVersion 34
 
         testApplicationId "com.example.android.notepad.tests"
         testInstrumentationRunner "android.test.InstrumentationTestRunner"
@@ -20,4 +18,12 @@ android {
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.txt'
         }
     }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+}
+
+dependencies {
+    implementation 'com.google.android.material:material:1.11.0'
 }
