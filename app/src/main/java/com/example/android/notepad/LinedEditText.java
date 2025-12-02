@@ -21,7 +21,7 @@ public class LinedEditText extends EditText {
         mRect = new Rect();
         mPaint = new Paint();
         mPaint.setStyle(Paint.Style.STROKE);
-        mPaint.setColor(0x800000FF);
+        mPaint.setColor(0x20000000); // 更淡的颜色，适应浅色主题
     }
 
     @Override

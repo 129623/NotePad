@@ -183,7 +183,9 @@ public class NotePadProvider extends ContentProvider implements PipeDataWriter<C
 
         // Creates a new projection map instance for categories
         sCategoriesProjectionMap = new HashMap<String, String>();
-        sCategoriesProjectionMap.put(NotePad.Notes.COLUMN_NAME_CATEGORY, NotePad.Notes.COLUMN_NAME_CATEGORY);
+        // Handle null/empty categories by grouping them as a single "未分组" category
+        sCategoriesProjectionMap.put(NotePad.Notes.COLUMN_NAME_CATEGORY, 
+                "CASE WHEN " + NotePad.Notes.COLUMN_NAME_CATEGORY + " IS NULL OR " + NotePad.Notes.COLUMN_NAME_CATEGORY + " = '' THEN NULL ELSE " + NotePad.Notes.COLUMN_NAME_CATEGORY + " END AS " + NotePad.Notes.COLUMN_NAME_CATEGORY);
         sCategoriesProjectionMap.put("COUNT(*)", "COUNT(*)");
     }
 
@@ -337,7 +339,8 @@ public class NotePadProvider extends ContentProvider implements PipeDataWriter<C
        String groupBy = null;
        // Only group by category when querying categories
        if (sUriMatcher.match(uri) == CATEGORIES) {
-           groupBy = NotePad.Notes.COLUMN_NAME_CATEGORY;
+           // Group by category, treating null/empty as a single group
+           groupBy = "CASE WHEN " + NotePad.Notes.COLUMN_NAME_CATEGORY + " IS NULL OR " + NotePad.Notes.COLUMN_NAME_CATEGORY + " = '' THEN NULL ELSE " + NotePad.Notes.COLUMN_NAME_CATEGORY + " END";
        }
        
        Cursor c = qb.query(

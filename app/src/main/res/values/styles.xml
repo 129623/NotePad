@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="AppTheme.NoActionBar" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="colorPrimary">@color/fab_yellow</item>
+        <item name="colorOnPrimary">@android:color/white</item>
+        <item name="colorOnSurface">@color/primary_text</item>
+        <item name="android:windowBackground">@color/background_color</item>
+        <item name="editTextStyle">@style/Widget.App.EditText</item>
+    </style>
+
+    <style name="Widget.App.EditText" parent="Widget.AppCompat.EditText">
+        <item name="android:textColor">@color/primary_text</item>
+        <item name="android:textColorHint">@color/hint_text</item>
+        <item name="android:textSize">16sp</item>
+    </style>
+</resources>

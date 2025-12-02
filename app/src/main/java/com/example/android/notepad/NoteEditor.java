@@ -217,17 +217,23 @@ public class NoteEditor extends Activity {
         if (savedInstanceState != null) {
             mOriginalContent = savedInstanceState.getString(ORIGINAL_CONTENT);
         }
+
+        // 如果是新建笔记，自动聚焦到标题输入框
+        if (mState == STATE_INSERT) {
+            mTitleText.requestFocus();
+        }
     }
 
     private void initCategoryAutoComplete() {
         mCategoryList = getCategoryList();
         mCategoryAdapter = new ArrayAdapter<>(this, android.R.layout.simple_dropdown_item_1line, mCategoryList);
         mCategoryAutoComplete.setAdapter(mCategoryAdapter);
-        mCategoryAutoComplete.setThreshold(0); // 设置为0，点击即显示所有选项
+        mCategoryAutoComplete.setThreshold(1); // 输入1个字符后开始匹配
         
         // 监听文本变化，同步更新底部显示
         mCategoryAutoComplete.setOnItemClickListener((parent, view, position, id) -> {
             mCurrentCategory = mCategoryList.get(position);
+            mCategoryAutoComplete.setText(mCurrentCategory);
         });
         
         // 监听输入框点击事件，确保点击时显示所有选项
@@ -247,8 +253,13 @@ public class NoteEditor extends Activity {
     private List<String> getCategoryList() {
         // Create a set to avoid duplicates
         HashSet<String> categorySet = new HashSet<>();
-        // Query all notes for categories
-        Cursor cursor = getContentResolver().query(NotePad.Notes.CONTENT_URI, new String[]{NotePad.Notes.COLUMN_NAME_CATEGORY}, null, null, null);
+        // Query all notes for categories, excluding todo categories
+        Cursor cursor = getContentResolver().query(
+                NotePad.Notes.CONTENT_URI, 
+                new String[]{NotePad.Notes.COLUMN_NAME_CATEGORY}, 
+                NotePad.Notes.COLUMN_NAME_CATEGORY + " NOT IN (?, ?)",
+                new String[]{"todo_pending", "todo_completed"},
+                null);
         if (cursor != null) {
             while (cursor.moveToNext()) {
                 int categoryIndex = cursor.getColumnIndex(NotePad.Notes.COLUMN_NAME_CATEGORY);
@@ -565,11 +576,11 @@ public class NoteEditor extends Activity {
                 // Get the note's length
                 int length = text.length();
 
-                // Sets the title by getting a substring of the text that is up to 30 characters long.
-                title = text.substring(0, Math.min(30, length));
+                // Sets the title by getting a substring of the text that is up to 10 characters long.
+                title = text.substring(0, Math.min(10, length));
 
-                // If the resulting length is more than 30 characters, chops the string
-                if (length > 30) {
+                // If the resulting length is more than 10 characters, try to find a space to break at
+                if (length > 10) {
                     int lastSpace = title.lastIndexOf(' ');
                     if (lastSpace > 0) {
                         title = title.substring(0, lastSpace);
@@ -636,6 +647,26 @@ public class NoteEditor extends Activity {
     }
 
     private void updateNote(){
-        updateNote(mTitleText.getText().toString(), mText.getText().toString(), mCurrentCategory);
+        String title = mTitleText.getText().toString();
+        String text = mText.getText().toString();
+        
+        // If title is empty, generate one from the note text
+        if (title.isEmpty() && !text.isEmpty()) {
+            // Get the note's length
+            int length = text.length();
+            
+            // Sets the title by getting a substring of the text that is up to 10 characters long.
+            title = text.substring(0, Math.min(10, length));
+            
+            // If the resulting length is more than 10 characters, try to find a space to break at
+            if (length > 10) {
+                int lastSpace = title.lastIndexOf(' ');
+                if (lastSpace > 0) {
+                    title = title.substring(0, lastSpace);
+                }
+            }
+        }
+        
+        updateNote(title, text, mCurrentCategory);
     }
 }
